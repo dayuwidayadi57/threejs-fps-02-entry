@@ -51,7 +51,7 @@ export function createHud(doc) {
   const startSub = el('div', 'start-sub', startEl);
   startSub.textContent = 'FOUNDRY YARD — VANGUARD vs EMBER · FIRST TO 5 ROUNDS';
   const startControls = el('div', 'start-controls', startEl);
-  startControls.textContent = 'WASD move · SHIFT sprint · SPACE jump · C crouch · CLICK shoot · R reload · G grenade · 1/2/3 weapons · B buy · ESC menu';
+  startControls.textContent = 'WASD move · SHIFT sprint · SPACE jump · C crouch · CLICK shoot · R reload · G grenade · 1/2/3 weapons · ESC menu';
   const startBtn = el('button', 'big-btn', startEl);
   startBtn.textContent = 'CLICK TO PLAY';
 
@@ -79,6 +79,17 @@ export function createHud(doc) {
   const endStats = el('div', 'end-stats', endEl);
   const endBtn = el('button', 'big-btn', endEl);
   endBtn.textContent = 'NEXT ROUND';
+
+  // Dead panel: shown only when the player dies mid-round. It never asks
+  // for pointer lock and never re-opens the start overlay — the round
+  // plays on behind it until it ends.
+  const deadEl = el('div', 'overlay dead-panel');
+  const deadTitle = el('h2', 'end-title', deadEl);
+  deadTitle.textContent = 'YOU DIED';
+  const deadText = el('div', 'end-stats', deadEl);
+  deadText.textContent = 'The round plays on without you. Spectate until it ends.';
+  const deadBtn = el('button', 'big-btn', deadEl);
+  deadBtn.textContent = 'SPECTATE';
 
   let hitTimer = 0;
   let bannerTimer = 0;
@@ -232,8 +243,9 @@ export function createHud(doc) {
     endEl.classList.remove('show');
   }
 
-  function showStart(onStart) {
+  function showStart(onStart, label) {
     startEl.classList.add('show');
+    startBtn.textContent = label || 'CLICK TO PLAY';
     startBtn.onclick = onStart;
   }
 
@@ -241,10 +253,19 @@ export function createHud(doc) {
     startEl.classList.remove('show');
   }
 
+  function showDeadPanel(onSpectate) {
+    deadEl.classList.add('show');
+    deadBtn.onclick = onSpectate;
+  }
+
+  function hideDeadPanel() {
+    deadEl.classList.remove('show');
+  }
+
   return {
     setScore, setTimer, setMoney, setHealth, setAmmo, setBomb, setCrosshairSpread,
     showHitmarker, killfeed, showBuy, hideBuy, showBanner,
     showObjectiveCard, hideObjectiveCard, showEndPanel, hideEndPanel,
-    showStart, hideStart, root,
+    showStart, hideStart, showDeadPanel, hideDeadPanel, root,
   };
 }

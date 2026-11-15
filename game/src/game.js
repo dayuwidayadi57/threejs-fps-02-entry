@@ -129,6 +129,7 @@ export function createGame(canvas, opts) {
     phase: 'menu', v: 0, e: 0, round: 1, loseStreak: 0,
     buyT: BUY_TIME, roundT: ROUND_TIME, endT: 0,
     time: 0, stepCount: 0, roundIncomeStart: 0, matchOver: false,
+    paused: false,
   };
 
   const alert = { pos: null, until: 0 };
@@ -149,11 +150,18 @@ export function createGame(canvas, opts) {
 
   const input = createInput(canvas, (locked) => {
     if (!locked && match.phase === 'live' && !shotMode) {
+      // Losing the lock mid-round (ESC) pauses the game — but only while
+      // the player is alive. A dead player gets the dead panel instead
+      // (see damagePlayer); the start overlay must never re-lock the
+      // mouse of a dead player.
+      if (!player.alive) return;
+      match.paused = true;
       hud.showStart(() => {
         hud.hideStart();
+        match.paused = false;
         audio.resume();
         input.requestLock();
-      });
+      }, 'RESUME');
     }
   });
 
@@ -167,7 +175,7 @@ export function createGame(canvas, opts) {
   window.addEventListener('resize', resize);
   resize();
 
-  function resetPlayerForRound() {
+  function resetPlayerForRound(fullReset) {
     player.body.x = SPAWNS.vanguard[1].x;
     player.body.z = SPAWNS.vanguard[1].z;
     player.body.y = 0;
@@ -183,10 +191,19 @@ export function createGame(canvas, opts) {
     player.plantT = 0;
     player.plantingSite = null;
     player.fireT = 0;
-    player.grenades = 0;
-    player.owned = new Set(['pistol']);
-    weapon.equip('pistol');
-    weapon.refill('pistol');
+    if (fullReset) {
+      // Match start: a fresh loadout — pistol only, no grenades.
+      player.grenades = 0;
+      player.owned = new Set(['pistol']);
+      weapon.equip('pistol');
+      weapon.refill('pistol');
+    } else {
+      // A surviving player keeps bought weapons and grenades across
+      // rounds; every owned weapon's ammo is refilled for the new round.
+      for (const id of player.owned) weapon.refill(id);
+      if (!player.owned.has(weapon.state.id)) weapon.equip('pistol');
+      else weapon.equip(weapon.state.id);
+    }
     bomb.state = 'carried';
     bomb.carrier = 'player';
     bomb.x = 0;
@@ -204,7 +221,7 @@ export function createGame(canvas, opts) {
     match.loseStreak = 0;
     match.matchOver = false;
     bots.reset();
-    resetPlayerForRound();
+    resetPlayerForRound(true);
     startBuyPhase();
   }
 
@@ -238,9 +255,11 @@ export function createGame(canvas, opts) {
     match.phase = 'buy';
     match.buyT = BUY_TIME;
     match.roundIncomeStart = economy.state.income;
+    match.paused = false;
     bots.reset();
     resetPlayerForRound();
     hud.hideEndPanel();
+    hud.hideDeadPanel();
     hud.hideStart();
     hud.showObjectiveCard();
     showBuyMenu();
@@ -319,8 +338,10 @@ export function createGame(canvas, opts) {
     match.matchOver = match.v >= WIN_ROUNDS || match.e >= WIN_ROUNDS;
     match.phase = match.matchOver ? 'matchEnd' : 'roundEnd';
     match.endT = END_DELAY;
+    match.paused = false;
     combat.clearGrenades();
     input.releaseLock();
+    hud.hideDeadPanel();
     audio.round(won);
     const result = match.matchOver
       ? (won ? 'VICTORY — THE YARD IS OURS' : 'DEFEAT — EMBER HOLDS THE YARD')
@@ -354,8 +375,18 @@ export function createGame(canvas, opts) {
       player.hp = 0;
       player.alive = false;
       player.plantT = 0;
+      // Death forfeits the bought loadout: the next round starts over
+      // from the pistol, with no grenades.
+      player.owned = new Set(['pistol']);
+      player.grenades = 0;
       input.releaseLock();
       hud.showBanner('YOU DIED');
+      // The dead panel owns the screen now — never the start overlay,
+      // which would re-lock the mouse of a dead player. The round plays
+      // on behind it; SPECTATE just dismisses the panel.
+      hud.showDeadPanel(() => {
+        hud.hideDeadPanel();
+      });
       hud.killfeed(attacker ? attacker.name + ' ▸ You' : 'You were eliminated', attacker ? attacker.team : '');
       if (bomb.state === 'carried' && bomb.carrier === 'player') {
         dropBomb(player.body.x, player.body.z);
@@ -520,7 +551,7 @@ export function createGame(canvas, opts) {
     if (input.wasPressed('Digit1') && player.owned.has('pistol')) { weapon.equip('pistol'); audio.click(); }
     if (input.wasPressed('Digit2') && player.owned.has('smg')) { weapon.equip('smg'); audio.click(); }
     if (input.wasPressed('Digit3') && player.owned.has('rifle')) { weapon.equip('rifle'); audio.click(); }
-    if (input.wasPressed('KeyG') && player.grenades > 0) {
+    if (input.wasPressed('KeyG') && player.grenades > 0 && match.phase === 'live') {
       player.grenades--;
       camera.getWorldDirection(vForward);
       vDir.copy(vForward).multiplyScalar(14);
@@ -530,13 +561,14 @@ export function createGame(canvas, opts) {
       audio.click();
     }
 
-    // Firing: auto weapons fire while held, semi-autos once per click.
+    // Firing: auto weapons fire while held, semi-autos once per click —
+    // and only while the round is live, never during the buy phase.
     const def = WEAPONS[weapon.state.id];
     const firing = input.state.firing;
     const edge = firing && !player.prevFiring;
     player.prevFiring = firing;
     player.fireT += dt;
-    if (firing && player.fireT >= def.gap) {
+    if (firing && match.phase === 'live' && player.fireT >= def.gap) {
       if (!weapon.ready()) {
         if (weapon.state.mag === 0 && weapon.state.reserve > 0) weapon.reload();
       } else if (def.auto || edge) {
@@ -623,7 +655,9 @@ export function createGame(canvas, opts) {
           return;
         }
       }
-      if (match.roundT <= 0) {
+      // The round clock never kills a planted bomb: while the charge is
+      // ticking, only detonation or defusal can end the round.
+      if (match.roundT <= 0 && bomb.state !== 'planted') {
         endRound('ember', 'time');
         return;
       }
@@ -651,14 +685,20 @@ export function createGame(canvas, opts) {
     let dt = (now - lastNow) / 1000;
     lastNow = now;
     if (dt > 0.25) dt = 0.25;
-    acc += dt;
-    let n = 0;
-    while (acc >= STEP && n < 5) {
-      stepFixed(STEP);
-      acc -= STEP;
-      n++;
+    // Paused (start overlay up): the simulation freezes — timer, bots and
+    // grenades all stop — while rendering and the HUD keep running.
+    if (match.paused) {
+      acc = 0;
+    } else {
+      acc += dt;
+      let n = 0;
+      while (acc >= STEP && n < 5) {
+        stepFixed(STEP);
+        acc -= STEP;
+        n++;
+      }
+      if (n === 5) acc = 0;
     }
-    if (n === 5) acc = 0;
 
     // Menu camera: a slow orbit over the yard.
     if (match.phase === 'menu') {
@@ -687,6 +727,14 @@ export function createGame(canvas, opts) {
       else if (bomb.state === 'dropped') hud.setBomb('dropped', 0);
       const speed = mover.groundSpeed(player.body);
       hud.setCrosshairSpread(12 + weapon.spread(speed) * 500);
+    } else if (match.phase === 'buy' || match.phase === 'roundEnd' || match.phase === 'matchEnd') {
+      // The charge text is refreshed here too, so it never goes stale
+      // across the buy phase or the end panel: a spent charge clears,
+      // a carried one still reads as carried.
+      if (bomb.state === 'planted' && bomb.timer > 0) hud.setBomb('planted', bomb.timer);
+      else if (bomb.state === 'carried' && bomb.carrier === 'player') hud.setBomb('carried', 0);
+      else if (bomb.state === 'dropped') hud.setBomb('dropped', 0);
+      else hud.setBomb('none', 0);
     }
 
     input.drainPressed();

@@ -8,8 +8,9 @@ const SPARKS = 10;
 const SPARK_LIFE = 0.12;
 
 export function createCombat(scene, shootables) {
+  const RAY_FAR = 220;
   const ray = new THREE.Raycaster();
-  ray.far = 220;
+  ray.far = RAY_FAR;
   const tmpDir = new THREE.Vector3();
   const tmpTo = new THREE.Vector3();
 
@@ -72,6 +73,9 @@ export function createCombat(scene, shootables) {
   // targets mixes world meshes with bot and player hit meshes; isFriendly
   // skips the shooter's own side. Returns null on a clean miss.
   function shoot(origin, dir, targets, isFriendly) {
+    // The raycaster is shared with hasLineOfSight, which narrows its range;
+    // a shot always fires at full range, so restore it before casting.
+    ray.far = RAY_FAR;
     ray.set(origin, dir);
     const hits = ray.intersectObjects(targets, false);
     let hit = null;
@@ -99,7 +103,11 @@ export function createCombat(scene, shootables) {
     ray.set(from, tmpDir);
     ray.far = dist - 0.05;
     const list = extraTargets && extraTargets.length ? shootables.concat(extraTargets) : shootables;
-    return ray.intersectObjects(list, false).length === 0;
+    const clear = ray.intersectObjects(list, false).length === 0;
+    // Restore the shared raycaster's full range: the next shot (or LOS
+    // check) must not inherit this check's short range.
+    ray.far = RAY_FAR;
+    return clear;
   }
 
   function throwGrenade(origin, velocity) {
