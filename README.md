@@ -43,7 +43,7 @@ node serve.ts
 
 WASD to move, mouse to aim, click to fire, R to reload, G to throw a
 grenade, E (hold, standing still, inside a site) to plant the charge,
-Shift to walk quietly, C to crouch, Space to jump. Click PLAY, buy what
+Shift to sprint, C to crouch, Space to jump. Click PLAY, buy what
 you can afford, DEPLOY, and take the yard.
 
 ## Shots
