@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Emberline — Foundry Yard</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: #0e0d0b; overflow: hidden; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #e8e0d0; }
+  canvas#game { display: block; width: 100vw; height: 100vh; }
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
+  .hud-top { position: absolute; top: 0; left: 0; right: 0; display: flex; justify-content: space-between; align-items: flex-start; padding: 14px 20px; font-weight: 700; letter-spacing: 0.08em; }
+  .hud-score { color: #f0a830; }
+  .hud-money { color: #e8e0d0; }
+  .hud-phase { text-align: center; }
+  .hud-timer { font-size: 28px; }
+  .hud-bomb { position: absolute; top: 66px; left: 50%; transform: translateX(-50%); font-weight: 700; letter-spacing: 0.1em; white-space: nowrap; }
+  .hud-bomb.planted { color: #ff5a3c; }
+  .hud-bomb.carried { color: #f0a830; }
+  .hud-bomb.dropped { color: #e8e0d0; }
+  .crosshair { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
+  .crosshair div { position: absolute; background: #fff; }
+  .ch-t { left: -1px; top: -14px; width: 2px; height: 8px; }
+  .ch-b { left: -1px; top: 6px; width: 2px; height: 8px; }
+  .ch-l { left: -14px; top: -1px; width: 8px; height: 2px; }
+  .ch-r { left: 6px; top: -1px; width: 8px; height: 2px; }
+  .cross-ring { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); border: 1px solid rgba(255,255,255,0.5); border-radius: 50%; width: 24px; height: 24px; }
+  .hud-health { position: absolute; left: 20px; bottom: 20px; }
+  .health-bar { width: 220px; height: 10px; background: rgba(255,255,255,0.15); }
+  .health-fill { height: 100%; background: #e5484d; width: 100%; }
+  .health-fill.low { background: #ff3020; }
+  .health-num { margin-top: 6px; font-weight: 700; }
+  .hud-ammo { position: absolute; right: 20px; bottom: 20px; text-align: right; }
+  .ammo-mag { font-size: 32px; font-weight: 800; }
+  .ammo-res { font-size: 18px; opacity: 0.7; }
+  .ammo-gren { font-size: 13px; opacity: 0.8; margin-top: 2px; }
+  .killfeed { position: absolute; right: 20px; top: 64px; text-align: right; font-size: 13px; }
+  .feed-line { margin-bottom: 4px; opacity: 0.9; }
+  .feed-line.vanguard { color: #f0a830; }
+  .feed-line.ember { color: #e5484d; }
+  .hitmarker { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); font-size: 28px; color: #fff; opacity: 0; }
+  .hitmarker.show { opacity: 1; }
+  .hitmarker.kill { color: #ff3020; }
+  .hitmarker.head { color: #f0a830; }
+  .banner { position: absolute; left: 50%; top: 22%; transform: translateX(-50%); font-size: 34px; font-weight: 800; letter-spacing: 0.12em; color: #f0a830; opacity: 0; transition: opacity 0.3s; text-shadow: 0 2px 12px rgba(0,0,0,0.8); white-space: nowrap; }
+  .banner.show { opacity: 1; }
+  .overlay { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); background: rgba(10,9,8,0.88); border: 1px solid rgba(240,168,48,0.35); padding: 32px 40px; text-align: center; display: none; pointer-events: auto; max-width: 640px; }
+  .overlay.show { display: block; }
+  .objective-card { top: 58px; transform: translateX(-50%); padding: 10px 22px; max-width: 780px; }
+  .objective-card h2 { display: inline; margin: 0 10px 0 0; font-size: 13px; letter-spacing: 0.18em; color: #f0a830; }
+  .obj-text { display: inline; opacity: 0.85; line-height: 1.4; font-size: 13px; }
+  .start-title { font-size: 56px; letter-spacing: 0.18em; color: #f0a830; margin: 0 0 8px; }
+  .start-sub { letter-spacing: 0.12em; opacity: 0.8; margin-bottom: 20px; }
+  .start-controls { font-size: 13px; opacity: 0.7; margin-bottom: 24px; line-height: 1.6; }
+  .big-btn { background: #f0a830; color: #141210; border: 0; padding: 14px 34px; font-size: 16px; font-weight: 800; letter-spacing: 0.1em; cursor: pointer; }
+  .big-btn:hover { background: #ffc860; }
+  .buy-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 20px 0; }
+  .buy-card { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); color: #e8e0d0; padding: 14px; text-align: left; cursor: pointer; font-family: inherit; }
+  .buy-card:hover:not(:disabled) { border-color: #f0a830; }
+  .buy-card:disabled { opacity: 0.45; cursor: default; }
+  .buy-name { font-weight: 800; }
+  .buy-desc { font-size: 12px; opacity: 0.7; margin: 4px 0; }
+  .buy-price { color: #f0a830; font-weight: 800; }
+  .buy-money { color: #f0a830; font-weight: 800; letter-spacing: 0.08em; }
+  .end-title { font-size: 36px; letter-spacing: 0.12em; color: #f0a830; margin: 0 0 10px; }
+  .end-score { font-size: 20px; font-weight: 700; margin-bottom: 8px; }
+  .end-stats { opacity: 0.8; margin-bottom: 20px; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="load-error" style="display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);color:#ff5a3c;font-family:system-ui,sans-serif;z-index:99;"></div>
+<script>
+window.addEventListener('error', (e) => {
+  const d = document.getElementById('load-error');
+  d.style.display = 'block';
+  d.textContent = 'Failed to load: ' + (e.message || e.filename || 'unknown error');
+});
+</script>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three/three.module.min.js" } }
+</script>
+<script type="module">
+import { createGame } from './src/game.js';
+
+const params = new URLSearchParams(window.location.search);
+const seed = parseInt(params.get('seed') || '1', 10) || 1;
+const shot = params.get('shot') || null;
+const canvas = document.getElementById('game');
+const game = createGame(canvas, { seed, shot });
+window.__game = game;
+game.start();
+</script>
+</body>
+</html>
